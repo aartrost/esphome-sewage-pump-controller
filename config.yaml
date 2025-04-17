@@ -1,0 +1,175 @@
+esphome:
+  name: sump-pump-level-sensors
+  friendly_name: Sump Pump Water Level Sensors
+
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: ESP32C6
+  framework:
+    type: esp-idf
+    version: 5.3.0
+    platform_version: 6.9.0
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
+
+api:
+  encryption:
+    key: !secret home_assistant_key
+
+ota:
+  - platform: esphome
+    id: ota_esphome
+
+# Enable logging
+logger:
+  baud_rate: 115200
+  hardware_uart: USB_SERIAL_JTAG
+  level: info
+
+captive_portal:
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  on_connect:
+    - output.turn_on: onboard_led
+  on_disconnect:
+    - output.turn_off: onboard_led
+
+  ap:
+    ssid: "Setup sewage pump sensor"
+
+script:
+  - id: run_pump
+    mode: single
+    then:
+      - switch.turn_on: pump_relay
+        # Run pump for max 60 seconds.
+        # Normally the low water sensor would stop this script, 
+        # but this is a safeguard
+      - delay: 60s 
+      - switch.turn_off: pump_relay
+
+
+# The symbolic name and corresponding I/O number of the 11 digital pins
+#  D0 =  0
+#  D1 =  1
+#  D2 =  2
+#  D3 = 21
+#  D4 = 22
+#  D5 = 23
+#  D6 = 16
+#  D7 = 17
+#  D8 = 19
+#  D9 = 20
+# D10 = 18
+
+switch:
+  - platform: gpio
+    id: "pump_relay"
+    name: "Enable Pump"
+    pin: GPIO18
+    on_turn_on:
+      then:
+        - logger.log:
+            format: "Pump is running!"
+            level: INFO
+    on_turn_off:
+      then:
+        - logger.log: 
+            format: "Pump is off!"
+            level: INFO
+
+interval:
+  # check tank state every 1 second
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (
+            // tank is full
+            id(full_tank).state
+          ) {
+
+            // start pump if not running yet
+            if(!id(run_pump).is_running()) {
+              ESP_LOGI("main", "Full tank detected, start the pump.");
+              id(run_pump).execute();
+            }
+
+          } else if (
+            // tank is not full and water is below empty
+            !id(empty_tank).state
+          ) {
+
+            // stop pump if still running
+            if(id(run_pump).is_running()) {
+              ESP_LOGI("main", "Empty tank detected, stop the pump.");
+              // stop the script
+              id(run_pump).stop();
+              // stop the pump
+              id(pump_relay).turn_off();
+            }
+
+          }
+
+binary_sensor:
+
+  # high water sensor
+  - platform: gpio
+    pin: 
+      number: GPIO16 # D6
+      inverted: false
+      mode:
+        input: true
+        pullup: true
+    name: "High water"
+    device_class: moisture
+
+  # full tank sensor
+  - platform: gpio
+    id: "full_tank"
+    name: "Tank full"
+    pin: 
+      number: GPIO23 # D5
+      inverted: false
+      mode:
+        input: true
+        pullup: true
+    device_class: moisture
+  
+  - platform: gpio
+    id: "empty_tank"
+    name: "Tank Empty"
+    pin: 
+      number: GPIO22 # D4
+      inverted: false
+      mode:
+        input: true
+        pullup: true
+    device_class: moisture
+
+sensor:
+
+  # Reports the WiFi signal strength/RSSI in dB
+  - platform: wifi_signal
+    name: "WiFi Signal dB"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: "diagnostic"
+
+  # Reports the WiFi signal strength in %
+  - platform: copy
+    source_id: wifi_signal_db
+    name: "WiFi Signal"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "%"
+    entity_category: "diagnostic"
+    device_class: ""
+
+output:
+  - platform: gpio
+    id: onboard_led
+    pin: 
+      number: GPIO15
+      inverted: true
