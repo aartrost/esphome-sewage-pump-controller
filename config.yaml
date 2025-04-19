@@ -51,7 +51,7 @@ ota:
 logger:
   baud_rate: 115200
   hardware_uart: USB_SERIAL_JTAG
-  level: debug
+  level: info
 
 captive_portal:
 wifi:
