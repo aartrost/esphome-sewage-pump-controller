@@ -1,13 +1,40 @@
+# Symbolic name to GPIO pin map
+#  D0 =  GPIO0
+#  D1 =  GPIO1
+#  D2 =  GPIO2
+#  D3 = GPIO21
+#  D4 = GPIO22
+#  D5 = GPIO23
+#  D6 = GPIO16
+#  D7 = GPIO17
+#  D8 = GPIO19
+#  D9 = GPIO20
+# D10 = GPIO18
+
 esphome:
-  name: sump-pump-level-sensors
-  friendly_name: Sump Pump Water Level Sensors
+  name: sump-pump-controller
+  friendly_name: Sump Pump Controller
+  platformio_options:
+    platform: https://github.com/lucaskatayama/platform-espressif32.git#feat/seeed_xiao_esp32c6.json
+  on_boot:
+    priority: 800
+    then:
+      # https://github.com/esphome/issues/issues/5864#issuecomment-2664149949
+      - output.turn_off: wifi_switch_enable
+      # Set sensors NC mode so that we always assume water is detected
+      # unless the sensor says there's no water. This is a safety precaution
+      # in case a sensor fails or unplugs. In that case we will assume water is 
+      # detected and trigger the safety features
+      - output.turn_off: overflow_threshold_mode
+      - output.turn_off: high_threshold_mode
+      - output.turn_off: low_threshold_mode
 
 esp32:
-  board: esp32-c6-devkitc-1
+  board: seeed_xiao_esp32c6
   variant: ESP32C6
   framework:
     type: esp-idf
-    version: 5.3.0
+    version: 5.3.1
     platform_version: 6.9.0
     sdkconfig_options:
       CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
@@ -24,7 +51,7 @@ ota:
 logger:
   baud_rate: 115200
   hardware_uart: USB_SERIAL_JTAG
-  level: info
+  level: debug
 
 captive_portal:
 wifi:
@@ -39,36 +66,43 @@ wifi:
   ap:
     ssid: "Setup sewage pump sensor"
 
+globals:
+
+  - id: pump_timeout_duration
+    type: int
+    restore_value: no
+    initial_value: '60000' # max pump runtime in ms
+
+  - id: pump_timed_out
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
 script:
   - id: run_pump
     mode: single
     then:
       - switch.turn_on: pump_relay
-        # Run pump for max 60 seconds.
-        # Normally the low water sensor would stop this script, 
-        # but this is a safeguard
-      - delay: 60s 
+        # Normally the low water sensor would stop this script
+        # but we also time out in case the pump runs for too long
+      - delay: !lambda 'return id(pump_timeout_duration);'
       - switch.turn_off: pump_relay
-
-
-# The symbolic name and corresponding I/O number of the 11 digital pins
-#  D0 =  0
-#  D1 =  1
-#  D2 =  2
-#  D3 = 21
-#  D4 = 22
-#  D5 = 23
-#  D6 = 16
-#  D7 = 17
-#  D8 = 19
-#  D9 = 20
-# D10 = 18
+        # Set the global timeout variable so the pump isn't started
+        # again until a change in state was detected
+      - globals.set:
+          id: pump_timed_out
+          value: 'true'
+      - logger.log: 
+            format: "Pump ran for more than %is. Timing out..."
+            args: id(pump_timeout_duration) / 1000
+            level: ERROR
 
 switch:
   - platform: gpio
     id: "pump_relay"
     name: "Enable Pump"
     pin: GPIO18
+    restore_mode: ALWAYS_OFF
     on_turn_on:
       then:
         - logger.log:
@@ -85,24 +119,41 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
+
+          if(
+            // pump is timeout
+            id(pump_timed_out)
+            // but the tank level sensor toggled itself
+            && !id(high_threshold_exceeded).state
+          ) {
+            ESP_LOGI("main", "Pump timeout cleared...");
+            id(pump_timed_out) = false;
+          }
+
           if (
             // tank is full
-            id(full_tank).state
+            id(high_threshold_exceeded).state
           ) {
 
-            // start pump if not running yet
-            if(!id(run_pump).is_running()) {
+            if(
+              // if not running
+              !id(run_pump).is_running()
+              // and not timed out
+              && !id(pump_timed_out)
+            ) {
               ESP_LOGI("main", "Full tank detected, start the pump.");
               id(run_pump).execute();
             }
 
           } else if (
-            // tank is not full and water is below empty
-            !id(empty_tank).state
+            // tank is empty
+            id(low_threshold_exceeded).state
           ) {
 
             // stop pump if still running
-            if(id(run_pump).is_running()) {
+            if(
+              id(run_pump).is_running()
+            ) {
               ESP_LOGI("main", "Empty tank detected, stop the pump.");
               // stop the script
               id(run_pump).stop();
@@ -114,34 +165,48 @@ interval:
 
 binary_sensor:
 
-  # high water sensor
+  # overflow water sensor sense pin D1 PNP mode pin D0
   - platform: gpio
+    id: "overflow_threshold_exceeded"
+    name: "Overflow threshold"
+    filters:
+      # only report if the state is stable for > 1s
+      - delayed_on: 1s
+      - delayed_off: 1s
     pin: 
-      number: GPIO16 # D6
+      number: GPIO1 # D1
       inverted: false
       mode:
         input: true
         pullup: true
-    name: "High water"
     device_class: moisture
 
-  # full tank sensor
+  # full tank sensor sensor sense pin D4 PNP mode pin D5
   - platform: gpio
-    id: "full_tank"
-    name: "Tank full"
+    id: "high_threshold_exceeded"
+    name: "High water threshold"
+    filters:
+      # only report if the state is stable for > 1s
+      - delayed_on: 1s
+      - delayed_off: 1s
     pin: 
-      number: GPIO23 # D5
+      number: GPIO22 # D4
       inverted: false
       mode:
         input: true
         pullup: true
     device_class: moisture
-  
+
+  # low tank sensor sensor sense pin D6 PNP mode pin D7
   - platform: gpio
-    id: "empty_tank"
-    name: "Tank Empty"
+    id: "low_threshold_exceeded"
+    name: "Low water threshold"
+    filters:
+      # only report if the state is stable for > 1s
+      - delayed_on: 1s
+      - delayed_off: 1s
     pin: 
-      number: GPIO22 # D4
+      number: GPIO16 # D6
       inverted: false
       mode:
         input: true
@@ -157,17 +222,25 @@ sensor:
     update_interval: 60s
     entity_category: "diagnostic"
 
-  # Reports the WiFi signal strength in %
-  - platform: copy
-    source_id: wifi_signal_db
-    name: "WiFi Signal"
-    filters:
-      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
-    unit_of_measurement: "%"
-    entity_category: "diagnostic"
-    device_class: ""
-
 output:
+  # enable antenna switch for better wifi reception
+  # https://github.com/esphome/issues/issues/5864#issuecomment-2664149949
+  - platform: gpio
+    id: wifi_switch_enable
+    pin: GPIO3
+  # `overflow_threshold_exceeded` PNP mode selector (pin D0)
+  - platform: gpio
+    id: overflow_threshold_mode
+    pin: GPIO0
+  # `high_threshold_exceeded` PNP mode selector (pin D5)
+  - platform: gpio
+    id: high_threshold_mode
+    pin: GPIO23
+  # `low_threshold_exceeded` PNP mode selector (pin D7)
+  - platform: gpio
+    id: low_threshold_mode
+    pin: GPIO17
+  # onboard LED
   - platform: gpio
     id: onboard_led
     pin: 
