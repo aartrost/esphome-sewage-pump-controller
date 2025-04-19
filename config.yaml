@@ -120,6 +120,10 @@ switch:
     lambda: !lambda 'return id(pump_relay).state;'
     name: "Start pump"
     turn_on_action:
+        # reset pump timeout when manually running
+        - globals.set:
+            id: pump_timed_out
+            value: 'false'
         - script.execute: run_pump
     turn_off_action:
         - script.stop: run_pump
