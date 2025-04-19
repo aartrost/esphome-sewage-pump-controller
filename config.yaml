@@ -100,8 +100,8 @@ script:
 switch:
   - platform: gpio
     id: "pump_relay"
-    name: "Enable Pump"
     pin: GPIO18
+    internal: true
     restore_mode: ALWAYS_OFF
     on_turn_on:
       then:
@@ -113,6 +113,17 @@ switch:
         - logger.log: 
             format: "Pump is off!"
             level: INFO
+    # public switch that calls the safe `run_pump` script
+    # so it's not possible to remotely run the pump indefinitely
+  - platform: template
+    id: "run_pump_switch"
+    lambda: !lambda 'return id(pump_relay).state;'
+    name: "Start pump"
+    turn_on_action:
+        - script.execute: run_pump
+    turn_off_action:
+        - script.stop: run_pump
+        - switch.turn_off: pump_relay
 
 interval:
   # check tank state every 1 second
@@ -139,7 +150,7 @@ interval:
 
           } else if (
             // tank is empty
-            id(low_threshold_exceeded).state
+            !id(low_threshold_exceeded).state
           ) {
 
             // stop pump if still running
@@ -157,6 +168,14 @@ interval:
 
 binary_sensor:
 
+  - platform: status
+    name: "Sump Pump Controller Status"
+
+  - platform: template
+    name: "Pump timeout status"
+    lambda: !lambda 'return id(pump_timed_out);'
+    device_class: problem
+
   # overflow water sensor sense pin D1 PNP mode pin D0
   - platform: gpio
     id: "overflow_threshold_exceeded"
@@ -173,7 +192,7 @@ binary_sensor:
         pullup: true
     device_class: moisture
     on_state:
-      # reset timeout on sensor state change
+      # reset pump timeout on sensor state change
       - globals.set:
           id: pump_timed_out
           value: 'false'
@@ -197,7 +216,7 @@ binary_sensor:
         pullup: true
     device_class: moisture
     on_state:
-      # reset timeout on sensor state change
+      # reset pump timeout on sensor state change
       - globals.set:
           id: pump_timed_out
           value: 'false'
@@ -221,7 +240,7 @@ binary_sensor:
         pullup: true
     device_class: moisture
     on_state:
-      # reset timeout on sensor state change
+      # reset pump timeout on sensor state change
       - globals.set:
           id: pump_timed_out
           value: 'false'
