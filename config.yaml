@@ -22,9 +22,9 @@ esphome:
       # https://github.com/esphome/issues/issues/5864#issuecomment-2664149949
       - output.turn_off: wifi_switch_enable
       # Set sensors NC mode so that we always assume water is detected
-      # unless the sensor says there's no water. This is a safety precaution
+      # unless the sensor tells us there's no water. This is a safety precaution
       # in case a sensor fails or unplugs. In that case we will assume water is 
-      # detected and trigger the safety features
+      # present and trigger the safety features
       - output.turn_off: overflow_threshold_mode
       - output.turn_off: high_threshold_mode
       - output.turn_off: low_threshold_mode
@@ -120,19 +120,11 @@ interval:
     then:
       - lambda: |-
 
-          if(
-            // pump is timeout
-            id(pump_timed_out)
-            // but the tank level sensor toggled itself
-            && !id(high_threshold_exceeded).state
-          ) {
-            ESP_LOGI("main", "Pump timeout cleared...");
-            id(pump_timed_out) = false;
-          }
-
           if (
             // tank is full
             id(high_threshold_exceeded).state
+            // tank is overflowing
+            || id(overflow_threshold_exceeded).state
           ) {
 
             if(
@@ -180,6 +172,14 @@ binary_sensor:
         input: true
         pullup: true
     device_class: moisture
+    on_state:
+      # reset timeout on sensor state change
+      - globals.set:
+          id: pump_timed_out
+          value: 'false'
+      - logger.log: 
+            format: "Pump timeout cleared..."
+            level: INFO
 
   # full tank sensor sensor sense pin D4 PNP mode pin D5
   - platform: gpio
@@ -196,6 +196,14 @@ binary_sensor:
         input: true
         pullup: true
     device_class: moisture
+    on_state:
+      # reset timeout on sensor state change
+      - globals.set:
+          id: pump_timed_out
+          value: 'false'
+      - logger.log: 
+            format: "Pump timeout cleared..."
+            level: INFO
 
   # low tank sensor sensor sense pin D6 PNP mode pin D7
   - platform: gpio
@@ -212,6 +220,14 @@ binary_sensor:
         input: true
         pullup: true
     device_class: moisture
+    on_state:
+      # reset timeout on sensor state change
+      - globals.set:
+          id: pump_timed_out
+          value: 'false'
+      - logger.log: 
+            format: "Pump timeout cleared..."
+            level: INFO
 
 sensor:
 
