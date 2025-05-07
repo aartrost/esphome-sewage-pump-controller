@@ -216,14 +216,14 @@ binary_sensor:
     name: "Connection"
 
   - platform: template
-    id: pump_duty_cycle_exceeded
-    name: "Pump duty cycle exceeded"
+    id: pump_max_runtime_exceeded
+    name: "Pump max runtime exceeded"
     lambda: !lambda 'return id(pump_timed_out);'
     device_class: problem
   
   - platform: template
     id: pump_malfunction_detected
-    name: "Pump malfunctioning"
+    name: "Pump malfunction detected"
     lambda: !lambda 'return id(pump_not_pumping);'
     device_class: problem
 
