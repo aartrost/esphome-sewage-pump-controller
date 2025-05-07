@@ -12,8 +12,8 @@
 # D10 = GPIO18
 
 esphome:
-  name: sump-pump-controller
-  friendly_name: Sump Pump Controller
+  name: sewage-pump-controller
+  friendly_name: Sewage Pump Controller
   platformio_options:
     platform: https://github.com/lucaskatayama/platform-espressif32.git#feat/seeed_xiao_esp32c6.json
   on_boot:
@@ -45,7 +45,6 @@ api:
 
 ota:
   - platform: esphome
-    id: ota_esphome
 
 # Enable logging
 logger:
@@ -64,16 +63,39 @@ wifi:
     - output.turn_off: onboard_led
 
   ap:
-    ssid: "Setup sewage pump sensor"
+    ssid: "sewage-pump-controller"
 
 globals:
+  ###
+  # Update this timeout to control how long the high level threshold sensor
+  # can be active. If this times out we assume the pump is faulty as the
+  # water level is not receding when powering the pump relay
+  ###
 
   - id: pump_timeout_duration
     type: int
     restore_value: no
-    initial_value: '60000' # max pump runtime in ms
+    # max pump runtime per cycle (90s)
+    initial_value: '90000'
 
   - id: pump_timed_out
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  ###
+  # Update this timeout to control how long the high level threshold sensor
+  # can be active. If this times out we assume the pump is faulty as the
+  # water level is not receding when powering the pump relay
+  ###
+
+  - id: pump_high_water_timeout
+    type: int
+    restore_value: no
+    # max pump runtime till high water should be cleared (15s)
+    initial_value: '15000'
+
+  - id: pump_not_pumping
     type: bool
     restore_value: no
     initial_value: 'false'
@@ -96,6 +118,8 @@ script:
             format: "Pump ran for more than %is. Timing out..."
             args: id(pump_timeout_duration) / 1000
             level: ERROR
+      # check water levels. Trigger alert if pump timed out while
+      # water levels are still at high or overflow levels.
 
 switch:
   - platform: gpio
@@ -130,7 +154,7 @@ switch:
         - switch.turn_off: pump_relay
 
 interval:
-  # check tank state every 1 second
+  # check tank & pump state every 1 second
   - interval: 1s
     then:
       - lambda: |-
@@ -170,24 +194,47 @@ interval:
 
           }
 
+text_sensor:
+
+  - platform: template
+    id: basin_level
+    name: "Basin level"
+    lambda: |-
+      if(id(overflow_threshold_exceeded).state) {
+        return {"overflowing"};
+      } else if (id(high_threshold_exceeded).state) {
+        return {"full"};
+      } else if (id(low_threshold_exceeded).state) {
+        return {"normal"};
+      }
+      
+      return {"empty"};
+
 binary_sensor:
 
   - platform: status
-    name: "Sump Pump Controller Status"
+    name: "Connection"
 
   - platform: template
-    name: "Pump timeout status"
+    id: pump_duty_cycle_exceeded
+    name: "Pump duty cycle exceeded"
     lambda: !lambda 'return id(pump_timed_out);'
+    device_class: problem
+  
+  - platform: template
+    id: pump_malfunction_detected
+    name: "Pump malfunctioning"
+    lambda: !lambda 'return id(pump_not_pumping);'
     device_class: problem
 
   # overflow water sensor sense pin D1 PNP mode pin D0
   - platform: gpio
     id: "overflow_threshold_exceeded"
-    name: "Overflow threshold"
+    name: "Overflow"
     filters:
-      # only report if the state is stable for > 1s
-      - delayed_on: 1s
-      - delayed_off: 1s
+      # only report if the state is stable for > 500ms
+      - delayed_on: 500ms
+      - delayed_off: 500ms
     pin: 
       number: GPIO1 # D1
       inverted: false
@@ -196,6 +243,7 @@ binary_sensor:
         pullup: true
     device_class: moisture
     on_state:
+      - component.update: basin_level
       # reset pump timeout on sensor state change
       - globals.set:
           id: pump_timed_out
@@ -207,11 +255,11 @@ binary_sensor:
   # full tank sensor sensor sense pin D4 PNP mode pin D5
   - platform: gpio
     id: "high_threshold_exceeded"
-    name: "High water threshold"
+    name: "High water"
     filters:
-      # only report if the state is stable for > 1s
-      - delayed_on: 1s
-      - delayed_off: 1s
+      # only report if the state is stable for > 500ms
+      - delayed_on: 500ms
+      - delayed_off: 500ms
     pin: 
       number: GPIO22 # D4
       inverted: false
@@ -219,10 +267,30 @@ binary_sensor:
         input: true
         pullup: true
     device_class: moisture
+    on_press:
+      then: 
+        - delay: !lambda 'return id(pump_high_water_timeout);'
+        - if:
+            condition:
+              binary_sensor.is_on: high_threshold_exceeded
+            then: 
+              # High level sensor is triggered for >10 seconds means
+              # the pump is not running or running but not moving liquid
+              - globals.set:
+                  id: pump_not_pumping
+                  value: 'true'
+              - logger.log: 
+                  format: "Pump is running but liquid level is not changing!"
+                  level: INFO
     on_state:
+      - component.update: basin_level
       # reset pump timeout on sensor state change
       - globals.set:
           id: pump_timed_out
+          value: 'false'
+      # reset pump not working status
+      - globals.set:
+          id: pump_not_pumping
           value: 'false'
       - logger.log: 
             format: "Pump timeout cleared..."
@@ -231,11 +299,11 @@ binary_sensor:
   # low tank sensor sensor sense pin D6 PNP mode pin D7
   - platform: gpio
     id: "low_threshold_exceeded"
-    name: "Low water threshold"
+    name: "Low water"
     filters:
-      # only report if the state is stable for > 1s
-      - delayed_on: 1s
-      - delayed_off: 1s
+      # only report if the state is stable for > 500ms
+      - delayed_on: 500ms
+      - delayed_off: 500ms
     pin: 
       number: GPIO16 # D6
       inverted: false
@@ -244,6 +312,7 @@ binary_sensor:
         pullup: true
     device_class: moisture
     on_state:
+      - component.update: basin_level
       # reset pump timeout on sensor state change
       - globals.set:
           id: pump_timed_out
@@ -254,12 +323,27 @@ binary_sensor:
 
 sensor:
 
+  - platform: duty_time
+    id: pump_duty_time
+    name: Total run time
+    lambda: !lambda 'return id(pump_relay).state;'
+    restore: true
+    last_time:
+      name: Last run time
+
   # Reports the WiFi signal strength/RSSI in dB
   - platform: wifi_signal
     name: "WiFi Signal dB"
     id: wifi_signal_db
     update_interval: 60s
     entity_category: "diagnostic"
+
+  - platform: debug
+    free:
+      name: "Heap Free"
+
+debug:
+  update_interval: 30s
 
 output:
   # enable antenna switch for better wifi reception
