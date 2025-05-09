@@ -274,7 +274,7 @@ binary_sensor:
             condition:
               binary_sensor.is_on: high_threshold_exceeded
             then: 
-              # High level sensor is triggered for >10 seconds means
+              # High level sensor is triggered for >$pump_high_water_timeout seconds means
               # the pump is not running or running but not moving liquid
               - globals.set:
                   id: pump_not_pumping
