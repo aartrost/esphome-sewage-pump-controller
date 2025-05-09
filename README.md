@@ -35,3 +35,7 @@ High voltage box installed:
 
 Completed project:
 ![High voltage box](https://raw.githubusercontent.com/aartrost/esphome-sewage-pump-controller/main/pictures/final-installation.jpeg)
+
+## Home assistant
+
+![Home Assistant screenshot](https://raw.githubusercontent.com/aartrost/esphome-sewage-pump-controller/main/pictures/home-assistant.png)
