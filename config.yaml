@@ -75,8 +75,8 @@ globals:
   - id: pump_timeout_duration
     type: int
     restore_value: no
-    # max pump runtime per cycle (90s)
-    initial_value: '90000'
+    # max pump runtime per cycle (120s)
+    initial_value: '120000'
 
   - id: pump_timed_out
     type: bool
@@ -303,7 +303,9 @@ binary_sensor:
     filters:
       # only report if the state is stable for > 500ms
       - delayed_on: 500ms
-      - delayed_off: 500ms
+      # Run the pump for 30 seconds after threshold was reached. This
+      # results in less cycles per day and hopefully less wear on the pump
+      - delayed_off: 30s
     pin: 
       number: GPIO16 # D6
       inverted: false
