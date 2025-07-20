@@ -121,6 +121,10 @@ script:
       # check water levels. Trigger alert if pump timed out while
       # water levels are still at high or overflow levels.
 
+button:
+  - platform: restart
+    name: "Restart Controller"
+
 switch:
   - platform: gpio
     id: "pump_relay"
@@ -209,6 +213,12 @@ text_sensor:
       }
       
       return {"empty"};
+
+  - platform: uptime
+    name: Uptime
+    format:
+      separator: " "
+      days: "D"
 
 binary_sensor:
 
