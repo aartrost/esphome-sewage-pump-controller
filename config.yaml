@@ -141,6 +141,7 @@ switch:
         - logger.log: 
             format: "Pump is off!"
             level: INFO
+
     # public switch that calls the safe `run_pump` script
     # so it's not possible to remotely run the pump indefinitely
   - platform: template
@@ -216,6 +217,7 @@ text_sensor:
 
   - platform: uptime
     name: Uptime
+    update_interval: 1h
     format:
       separator: " "
       days: "D"
@@ -349,13 +351,6 @@ sensor:
     id: wifi_signal_db
     update_interval: 60s
     entity_category: "diagnostic"
-
-  - platform: debug
-    free:
-      name: "Heap Free"
-
-debug:
-  update_interval: 30s
 
 output:
   # enable antenna switch for better wifi reception
