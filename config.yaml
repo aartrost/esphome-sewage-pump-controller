@@ -142,6 +142,11 @@ switch:
             format: "Pump is off!"
             level: INFO
 
+  - platform: gpio
+    name: "use external antenna"
+    pin: GPIO14
+    restore_mode: ALWAYS_ON
+
     # public switch that calls the safe `run_pump` script
     # so it's not possible to remotely run the pump indefinitely
   - platform: template
@@ -355,6 +360,7 @@ sensor:
 output:
   # enable antenna switch for better wifi reception
   # https://github.com/esphome/issues/issues/5864#issuecomment-2664149949
+  # set to LOW to enable RF switch control
   - platform: gpio
     id: wifi_switch_enable
     pin: GPIO3
