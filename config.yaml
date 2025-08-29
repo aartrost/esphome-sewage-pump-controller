@@ -14,8 +14,6 @@
 esphome:
   name: sewage-pump-controller
   friendly_name: Sewage Pump Controller
-  platformio_options:
-    platform: https://github.com/lucaskatayama/platform-espressif32.git#feat/seeed_xiao_esp32c6.json
   on_boot:
     priority: 800
     then:
@@ -31,13 +29,10 @@ esphome:
 
 esp32:
   board: seeed_xiao_esp32c6
-  variant: ESP32C6
   framework:
     type: esp-idf
-    version: 5.3.1
-    platform_version: 6.9.0
-    sdkconfig_options:
-      CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
+
+web_server:
 
 api:
   encryption:
@@ -222,7 +217,7 @@ text_sensor:
 
   - platform: uptime
     name: Uptime
-    update_interval: 1h
+    update_interval: 1d
     format:
       separator: " "
       days: "D"
